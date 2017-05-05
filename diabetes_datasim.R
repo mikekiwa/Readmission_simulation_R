@@ -230,20 +230,20 @@ plot(head(orig.raw,100))
 num_procedures <- rpois(10000,0.8)
 
 set.seed(1)
-num_medications <- floor(raw$num_medications*8.9*logistic((age-3.5)/.8))
-hist(num_medications)
-plot(age,num_medications)
-hist(data2$num_medications)
-hist(raw$num_medications)
-sd(data2$num_medications)
-mean(data2$num_medications)
-g <- ggplot(data2, aes(x=age, y=num_medications))
+number_diagnoses <- floor(raw$number_diagnoses*2*logistic((age-2.5)/4))
+number_diagnoses <- ifelse(raw$number_diagnoses<10,rnorm(10000,7.4,.8)*8*logistic((age-2.5)/8),floor(raw$number_diagnoses*1*logistic((age-2.5)/4)))
+number_diagnoses <- ifelse(raw$number_diagnoses<10,raw$number_diagnoses*2,floor(rpois(10000,0.12)*8*logistic((age-1)/4)))
+hist(number_diagnoses)
+plot(age,number_diagnoses)
+plot(age,raw$number_diagnoses*2)
+hist(data2$number_diagnoses)
+hist(raw$number_diagnoses*2)
+sd(data2$number_diagnoses)
+mean(data2$number_diagnoses)
+g <- ggplot(data2, aes(x=age, y=number_diagnoses))
 g + geom_boxplot()
 
-num_medications 
-number_outpatient 
-number_emergency  
-number_inpatient  
+ 
 number_diagnoses
 
 ########################################################
@@ -259,8 +259,6 @@ generate_dataset <- function(N) {
   gender <- sample(c('Female','Male'), N, replace = T, prob = c(0.538,0.462))
   race <- sample(c('AfricanAmerican','Asian','Caucasian','Hispanic','Other'), N,
                  replace = T,prob = c(0.189,0.006,0.748,0.02,0.037))
-  #time_in_hospital <- floor(age * rpois(10000,1.8))/6
-  num_lab_procedures <- rnorm(10000,43.1,19.67)
   R = matrix(cbind(1,.32,.19,.47,-.01,-0.01,.07,.22,  
                    .32,1,.06,.27,-.01,-.002,.04,.15,  
                    .19,.06,1,.39,-.02,-.04,-.07,.07,
@@ -269,8 +267,7 @@ generate_dataset <- function(N) {
                    -0.01,-0.002,-0.04,0.01,0.09,1,0.27,0.06,
                    0.07,0.034,-0.07,0.06,0.11,0.27,1,0.1,
                    0.22,0.15,0.07,0.26,0.09,0.06,0.1,1
-  ),
-  nrow=8)
+  ), nrow=8)
   U = t(chol(R))
   nvars = dim(U)[1]
   numobs = N
@@ -284,6 +281,14 @@ generate_dataset <- function(N) {
   time_in_hospital <- raw$time_in_hospital*1.8*logistic((age-4)/.7)
   num_lab_procedures <- raw$num_lab_procedures*17.5*logistic((age-0)/.2)
   num_procedures  <- ifelse(raw$num_procedures>0, floor(raw$num_procedures*0.9*logistic((age-4)/.8)),raw$num_procedures+1)
+  num_medications <- floor(raw$num_medications*9*logistic((age-2.5)/.8))
+  number_outpatient <- rpois(N,0.2)*14*logistic((age-3.5)/1.2)
+  number_emergency <- rpois(N,0.2)*24*logistic((age-5)/2)
+  number_inpatient <- rpois(N,0.18)*8*logistic((age-1)/4)
+  number_diagnoses <- ifelse(raw$number_diagnoses<10,raw$number_diagnoses*2,floor(rpois(N,0.12)*8*logistic((age-1)/4)))
+  cont_vars <- data.frame(time_in_hospital,num_lab_procedures,num_procedures,num_medications,
+                           number_outpatient,number_emergency,number_inpatient,number_diagnoses)
+  #cor(cont_vars)
   max_glu_serum <- sample(c('>200','>300','None','Norm'), N, replace = T, prob = c(0.015,0.012,0.947,0.026))
   A1Cresult <- sample(c('>7','>8','None','Norm'), N, replace = T, prob = c(0.037,0.081,0.833,0.049))
   insulin <- sample(c('Down','No','Steady','Up'), N, replace = T, prob = c(0.12,0.466,0.303,.111))
@@ -300,22 +305,18 @@ generate_dataset <- function(N) {
   payer_code <- sample(c('Insured','Self_pay'), N, replace = T, prob = c(0.951,0.049))
   readmitted <- sample(c('<30','>30','NO'), N, replace = T, prob = c(0.538,0.462))
   data.frame(age,gender,race,time_in_hospital,num_lab_procedures,num_procedures,
+             num_medications,number_outpatient,number_emergency,number_inpatient,number_diagnoses,
              max_glu_serum,A1Cresult,insulin,change,diabetesMed,diag1,diag2,
              admission_source,discharged_to,payer_code,readmitted)
 }
 
-time_in_hospital 
-num_lab_procedures
-num_procedures 
-num_medications 
-number_outpatient 
-number_emergency  
-number_inpatient  
+
+  
 number_diagnoses
 
 
 
-prop.table(table(data2$diag2))
+prop.table(table(data2$number_diagnoses))
 
 sd(data2$num_procedures)
 mean(data2$num_procedures)
@@ -354,6 +355,12 @@ g + geom_boxplot()
 aov1 <- aov(data2$time_in_hospital ~ data2$age)
 summary(aov1)
 
-fit <- lm(time_in_hospital~age, data = df)
+fit <- lm(class~., data = data2)
 summary(fit)
 plot(df$age,df$time_in_hospital)
+
+data3 <- data2
+data3$class[data3$readmitted=='<30'] <- 1
+data3$class[data3$readmitted=='>30'] <- 2
+data3$class[data3$readmitted=='NO'] <- 3
+data3  
