@@ -1,0 +1,358 @@
+---
+title: "Data Simulation Project"
+author: "Tobi_Olatunji"
+date: "5/17/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Diabetes Data Simulation Project
+
+#### Research Article
+Beata Strack et al. Impact of HbA1c Measurement on Hospital Readmission Rates: Analysis of 70,000 Clinical Database Patient Records. BioMed Research International. Volume 2014 (2014), Article ID 781670, 11 pages. 
+
+<https://www.hindawi.com/journals/bmri/2014/781670/#B9>
+
+Github Repo
+<https://github.com/tobiolatunji/Readmission_simulation_R>
+
+## Project Description
+
+This data simulation project seeks to predict readmissions (> or < than 30 days) in patients with diabetes. The data would be simulated based on the Health Facts database (Cerner Corporation, Kansas City, MO), a national data warehouse that collects comprehensive clinical records across hospitals throughout the United States.
+
+The Health Facts data used was an extract representing 10 years (1999???2008) of clinical care at 130 hospitals and integrated delivery networks throughout the United States: Midwest (18 hospitals), Northeast (58), South (28), and West (16). Most of the hospitals (78) have bed size between 100 and 499, 38 hospitals have bed size less than 100, and bed size of 14 hospitals is greater than 500.
+
+Dataset will have 100,000 rows and 24 columns. Original dataset had 101,766 rows and 55 columns. Dimensions were reduced to improve computation speed on my local machine.
+
+#### Predictor Variables
+
+* Race- Caucasian (75%), Asian (1%), African-American (19%), Hispanic (3%), and other (5%)
+* Gender: Female (53%), male (46%), unknown/invalid (1%)
+* Age: Right skewed Normal Distribution, Mode ~ (80-90)yrs
+* Length of stay (time_in_hospital): Min: 1 day, Max: 14 days, Mean- 4.4
+* Number of lab procedures: Min: 1, Max: 132, Mean- 43.1
+* Number of non-lab procedures: Min:0, Max: 6, Mean- 1.34
+* Number of medications: Min: 1, Max: 81, Mean- 16.02
+* Number of outpatient visits: Min: 0, Max: 42, Mean- 0.37
+* Number of emergency visits: Min: 0, Max: 76, Mean- 0.2
+* Number of inpatient visits: Min: 0, Max: 21, Mean- 0.64
+* Number of diagnoses: Min: 1, Max: 16, Mean- 7.42
+* Glucose serum test: ???>200,??? ???>300,??? ???normal,??? and ???none??? (>95%)
+* HbA1c result: ???>8??? (8%), if the result was greater than 8%, ???>7???  (5%), if the result was greater than 7% but less than 8%, ???normal??? (6%), if the result was less than 7%, and ???none??? (85%), if not measured.
+* Insulin: ???yes??? (78%), and ???no??? (22%)
+* Change in medication: ???change??? (47%), and ???no change??? (53%),
+* Diabetes Medication: ???yes??? and ???no???
+* Diagnosis 1 category: ???Circulatory??? (30%), ???Respiratory??? (15%), ???Digestive??? (10%), ???Diabetes??? (8%), ???Trauma??? (7.5%), ???Musculoskeletal??? (5%), ???Genitourinary??? (6%), ???Neoplasms??? (15%), ???Other (7%)???
+* Diagnosis 2 category: ???Circulatory??? (32%), ???Respiratory??? (11%), ???Digestive??? (4%), ???Diabetes??? (13%), ???Trauma??? (2.5%), ???Musculoskeletal??? (2%), ???Genitourinary??? (9%), ???Neoplasms??? (19%), ???Other (10%)???
+* Diagnosis 3 category: ???Circulatory??? (30%), ???Respiratory??? (7.5%), ???Digestive??? (4%), ???Diabetes??? (17%), ???Trauma??? (2%), ???Musculoskeletal??? (2%), ???Genitourinary??? (7%), ???Neoplasms??? (17%), ???Other (15%)???
+* Admission source: clinic referral (10%), emergency room (57%), and other (33%)
+* Discharged to: Home (25%), transferred (73%), AMA (2%)
+* Payer code: ???Insured??? (45%) and ???Self_Pay??? (3%)
+
+#### Correlations (Numeric variables)
+Time-in-hospital is positively correlated with number of lab procedures,
+Number of non-lab procedures, number of medications and number of diagnoses
+Number of emergency visits correlates with number of inpatient visits
+
+#### Response Variable
+* Readmitted: 'Yes' (54%), 'No' (46%)
+
+
+```{r}
+library(corrplot)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(nnet)
+library(e1071)
+library(ROCR)
+logistic <- function(t) 1 / (1 + exp(-t))
+# pseudo R-squared for logistic regression model
+logisticPseudoR2s <- function(LogModel) {
+  dev <- LogModel$deviance 
+  nullDev <- LogModel$null.deviance 
+  modelN <-  length(LogModel$fitted.values)
+  R.l <-  1 -  dev / nullDev
+  R.cs <- 1- exp ( -(nullDev - dev) / modelN)
+  R.n <- R.cs / ( 1 - ( exp (-(nullDev / modelN))))
+  cat("Pseudo R^2 for logistic regression\n")
+  cat("Hosmer and Lemeshow R^2  ", round(R.l, 3), "\n")
+  cat("Cox and Snell R^2        ", round(R.cs, 3), "\n")
+  cat("Nagelkerke R^2           ", round(R.n, 3),    "\n")
+}
+```
+
+### Generate the data
+
+Using a combination of methods, it was possible to simulate the variables along with thier relationships.
+
+```{r}
+N <- 1e5
+
+generate_dataset <- function(N) {
+  set.seed(123)
+  age <- sample(c("0-10","11-20","21-30","31-40","41-50","51-60","61-70","71-80","81-90","91-100"),
+                N, replace=T, prob=c(0.001, 0.007, 0.016, 0.037, 0.095, 0.17, 0.221, 0.257, 0.169, 0.027))
+  age_score <- sample(1:10, N, replace=T, prob=c(0.001, 0.007, 0.016, 0.037, 0.095, 0.17, 0.221, 0.257, 0.169, 0.027))
+  age <- ifelse(age_score==1,"0-10",(ifelse(age_score==2,"11-20",(ifelse(age_score==3,"21-30",
+                    (ifelse(age_score==4,"31-40",(ifelse(age_score==5,"41-50",
+                    (ifelse(age_score==6,"51-60",(ifelse(age_score==7,"61-70",
+                    (ifelse(age_score==8,"71-80",(ifelse(age_score==9,"81-90","91-100")))))))))))))))))
+  gender <- sample(c('Female','Male'), N, replace = T, prob = c(0.538,0.462))
+  #gender_score <- sample(1:2, N, replace = T, prob = c(0.538,0.462))
+  #gender <- ifelse(gender_score==1,'Female','Male')
+  race <- sample(c('AfricanAmerican','Asian','Caucasian','Hispanic','Other'), N,
+                 replace = T,prob = c(0.189,0.006,0.748,0.02,0.037))
+  #### generate correlation matrix of 8 numeric variables
+  # https://www.r-bloggers.com/simulating-random-multivariate-correlated-data-continuous-variables/
+  R = matrix(cbind(1,.32,.19,.47,-.01,-0.01,.07,.22,  
+                   .32,1,.06,.27,-.01,-.002,.04,.15,  
+                   .19,.06,1,.39,-.02,-.04,-.07,.07,
+                   .47,.27,.39,1,.05,.01,.06,.26,
+                   -0.01,-0.01,-0.02,0.05,1,0.09,0.11,0.09,
+                   -0.01,-0.002,-0.04,0.01,0.09,1,0.27,0.06,
+                   0.07,0.034,-0.07,0.06,0.11,0.27,1,0.1,
+                   0.22,0.15,0.07,0.26,0.09,0.06,0.1,1
+  ), nrow=8)
+  U = t(chol(R))
+  nvars = dim(U)[1]
+  numobs = N
+  random.normal = matrix(rpois(nvars*numobs,1.2), nrow=nvars, ncol=numobs);
+  X = U %*% random.normal
+  newX = t(X)
+  raw = as.data.frame(newX)
+  names(raw) = c('time_in_hospital','num_lab_procedures','num_procedures','num_medications',
+                 'number_outpatient','number_emergency','number_inpatient','number_diagnoses')
+  time_in_hospital <- ceiling(raw$time_in_hospital*1.8*logistic((age_score-3.5)/.7))
+  num_lab_procedures <- ceiling(raw$num_medications*17.5*logistic((age_score-0)/.2))
+  num_procedures  <- ceiling(ifelse(raw$num_procedures>0, floor(raw$num_procedures*0.9*logistic((age_score-4)/.8)),raw$num_procedures+1))
+  num_medications <- ceiling(raw$num_medications*9*logistic((age_score-2.5)/.8))
+  number_outpatient <- ceiling(rpois(N,0.2)*14*logistic((age_score-3)/1.2))
+  number_emergency <- ceiling(rpois(N,0.2)*24*logistic((age_score-5)/2))
+  number_inpatient <- ceiling(rpois(N,0.18)*8*logistic((age_score-1)/4))
+  number_diagnoses <- ceiling(ifelse(raw$number_diagnoses<10,raw$number_diagnoses*2,floor(rpois(N,0.12)*8*logistic((age_score-1)/4))))
+  max_glu_serum <- sample(c('>200','>300','None','Norm'), N, replace = T, prob = c(0.015,0.012,0.947,0.026))
+  A1Cresult <- sample(c('>7','>8','None','Norm'), N, replace = T, prob = c(0.037,0.081,0.833,0.049))
+  insulin <- sample(c('Down','No','Steady','Up'), N, replace = T, prob = c(0.12,0.466,0.303,.111))
+  insulin_score <- sample(1:4,N,replace=T,prob = c(0.12,0.466,0.303,.111) )
+  insulin <- ifelse(insulin_score==1,'Down',(ifelse(insulin_score==2,'No',
+                       (ifelse(insulin_score==3,'Steady','Up')))))
+  change <- sample(c('Ch','No'), N, replace = T, prob = c(0.462,0.538))
+  change_score <- sample(1:2,N,replace=T,prob = c(0.462,0.538))
+  change <- ifelse(change_score==1,'Ch','No')
+  diabetesMed <- sample(c('No','Yes'), N, replace = T, prob = c(0.23,0.77))
+  diabetesMed_score <- sample(1:2,N,replace=T,prob = c(0.23,0.77))
+  diabetesMed <- ifelse(diabetesMed_score==1,'No','Yes')
+  diag1 <- sample(c('circulatory','respiratory','digestive','diabetes','injury',
+                    'musculoskeletal','genitourinary','neoplasms','other'), N, replace = T, 
+                  prob = c(.299,.142,.093,.086,.068,.049,.05,.138,.074))
+  #diag1_score <- sample(1:9,N,replace=T,prob = c(.299,.142,.093,.086,.068,.049,.05,.138,.074))
+  admission_source <- sample(c('clinic_referral','emergency','other'), N, replace = T, prob = c(0.101,0.565,.334))
+  discharged_to <- sample(c('home','transferred','left_AMA'), N, replace = T, prob = c(0.241,0.753,.006))
+  payer_code <- sample(c('Insured','Self_pay'), N, replace = T, prob = c(0.951,0.049))
+  score <- 0.67*age_score + 0.5*time_in_hospital + 0.5 * num_lab_procedures -
+    0.49 *num_procedures + 0.5 *num_medications + 0.52 *number_outpatient +
+    0.56 *number_emergency + 0.6 *number_inpatient + 0.5 *number_diagnoses - 
+    1.43 * insulin_score + 0.9 * change_score + 0.6 * diabetesMed_score
+  class <- runif(length(score))< .64*logistic((score-30)/2)
+  readmitted <- ifelse(class==T,"YES","NO")
+  data.frame(gender,race,age,time_in_hospital,num_lab_procedures,num_procedures,
+             num_medications,number_outpatient,number_emergency,number_inpatient,number_diagnoses,
+             max_glu_serum,A1Cresult,insulin,change,diabetesMed,diag1,
+             admission_source,discharged_to,payer_code,readmitted)
+}
+
+
+data <- generate_dataset(N)
+```
+
+## Exploratory Analysis and Plots
+
+Data Summary
+
+```{r}
+summary(data)
+```
+
+#### Visualize Correlations in Numerical Variables
+
+```{r}
+num_vars <- select(data, time_in_hospital,num_lab_procedures,num_procedures,
+               num_medications,number_outpatient,number_emergency,number_inpatient,  
+               number_diagnoses)
+c <- cor(num_vars, use= "pairwise.complete.obs")
+corrplot(c)
+```
+The correlations here are quite similar to the correlations of the numeric variables in the original data
+
+#### Variable Distributions and Relationships
+
+```{r}
+# variable distributions
+plot(data$age, main = "age distribution") # age: mode 70-80yrs normal distribution, right skewed
+plot(data$gender, main = "gender distribution") # gender: female 53% male 47%
+plot(data$A1Cresult, main = "A1C") # A1Cresult: 84% no A1c results, 8% >8
+plot(data$readmitted, main = "readmissions") # readmission: >50% no readmission
+plot(data$admission_source, main = "admission source") # emergency 60%
+plot(data$discharged_to, main = "Discharged To") # transferred to another facility 70%
+# race: 75% caucasian
+# admission source: emergency >50%
+# time in hospital: mode 3 days
+# max_glu_serum: none in >90%
+
+g <- ggplot(data, aes(x=age, y=time_in_hospital))
+g + geom_boxplot(aes(fill=readmitted))
+# patients with readmissions in their 70s-80s had longer time in hospital
+# patients in their 30s-40s with readmission also spent longer in the hospital
+
+g <- ggplot(data,aes(x=A1Cresult, y=num_medications))
+g + geom_boxplot(aes(color=A1Cresult)) 
+# not much difference in distribution across groups
+
+g <- ggplot(data,aes(x=A1Cresult, y=time_in_hospital))
+g + geom_boxplot(aes(fill=diabetesMed)) + facet_grid(. ~ readmitted)
+# patients with no readmission and those not taking diabetes medication generally spent less time in hospital 
+
+g <- ggplot(data,aes(x=age, y=num_medications))
+g + geom_boxplot(aes(fill=age))
+# number of medications was highest in 60-70yr olds
+
+g <- ggplot(data,aes(x=diag1, y=time_in_hospital))
+g + geom_boxplot(aes(fill=diag1))
+# respiratory and injury diagnosis 2 stayed longest in hospital
+```
+
+### SPLIT DATA INTO TRAINING AND TESTING SET
+
+This is necessary to evaluate the model with unseen data
+
+```{r}
+set.seed(123)
+inTrain <- createDataPartition(y = data$readmitted, p = .66,list = FALSE)
+train <- data[ inTrain,]
+test <- data[-inTrain,]
+nrow(train) # 67167
+nrow(test) # 3459
+plot(train$readmitted)
+```
+Two-thirds of the data were used as training data while one-third was reserved for testing and model evaluation
+
+
+### Logistic Regression
+
+Build model, select features
+
+```{r}
+fit_sim <- glm(readmitted~.,data=train, family=binomial)
+summary(fit_sim)
+logisticPseudoR2s(fit_sim)
+anova(fit_sim, test="Chisq")
+```
+
+#### Main model 
+
+```{r}
+fit_main_effects <- glm(readmitted~age+time_in_hospital+num_lab_procedures+num_medications+
+                number_outpatient+number_emergency+number_inpatient+number_diagnoses+
+                  insulin+diag1,
+                data=train, family=binomial)
+summary(fit_main_effects)
+logisticPseudoR2s(fit_main_effects)
+anova(fit_main_effects, test="Chisq")
+```
+
+#### Step Function
+
+```{r}
+# null model
+fit_null <- glm(readmitted~1, data=train, family = binomial)
+
+# main effects
+fit_main <- glm(readmitted ~ ., data=train, family = binomial)
+
+# step function
+fit_step <- step(fit_null, scope=list(lower=fit_null, upper=fit_main), direction='both')
+```
+
+## NAIVE BAYES 
+e1071 implementation
+
+```{r}
+nbayesmodel <- naiveBayes(readmitted ~ num_medications + number_emergency + number_outpatient + 
+    number_inpatient + num_lab_procedures + age + number_diagnoses + 
+    insulin + time_in_hospital + discharged_to + change + num_procedures, 
+                          data = train)
+
+test$pred <- predict(nbayesmodel, test, type = "class")
+prop.table(table(test$readmitted, test$pred),1)
+confusionMatrix(test$pred, test$readmitted)
+```
+
+## Random Forest
+
+Random Forest for Feature Importances
+Random Forest Model and Evaluation
+
+```{r}
+Rf_fit<-randomForest(formula=readmitted ~ .,
+                     data=train)
+print(Rf_fit)
+
+test$pred <- predict(Rf_fit, test, type = "response")
+prop.table(table(test$readmitted, test$pred),1)
+confusionMatrix(test$pred, test$readmitted)
+importance(Rf_fit)
+```
+
+
+## NEURAL NETWORK MODEL
+
+You can also embed plots, for example:
+
+```{r}
+nnet_model <- nnet(formula = readmitted~age+time_in_hospital+num_lab_procedures+num_medications+
+                number_outpatient+number_emergency+number_inpatient+number_diagnoses+
+                  insulin+diag1, 
+                   data=train, size = 10, maxit = 100)
+test$pred <- predict(nnet_model, test, type = "class")
+prop.table(table(test$readmitted, test$pred),1)
+confusionMatrix(test$pred, test$readmitted)
+```
+
+
+## MODEL EVALUATION (ROC CURVE) AND VISUALIZATION
+
+The following plots help visualize the performance of the neural network model
+
+```{r}
+# Predict labels on test
+ypred <- predict(nnet_model,test,type = "class")
+# Compute at the prediction scores
+test$ypredscore = predict(nnet_model,test,type="raw")
+# Check that the predicted labels are the signs of the scores
+table(test$ypredscore > 0,test$pred)
+# compute ROC curve, precision-recall etc...
+pred <- prediction(test$ypredscore,test$readmitted)
+# Plot ROC curve
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+# Plot precision/recall curve
+perf <- performance(pred, measure = "prec", x.measure = "rec")
+plot(perf)
+# Plot accuracy as function of threshold
+perf <- performance(pred, measure = "acc")
+plot(perf)
+```
+
+## SUMMARY
+
+The results of the analysis are similar to the result from the actual data. The accuracy of all 3 models used here (71-72%) are similar to those of the actual data (~62%). 
+The correlations of the numeric variables also closely match those from the original dataset.
+The plots also reveal interesting insights about the data.
+
+This was altogether a very interesting learning experience!
+

@@ -78,7 +78,7 @@ generate_dataset <- function(N) {
     0.49 *num_procedures + 0.5 *num_medications + 0.52 *number_outpatient +
     0.56 *number_emergency + 0.6 *number_inpatient + 0.5 *number_diagnoses - 
     1.43 * insulin_score + 0.9 * change_score + 0.6 * diabetesMed_score
-  class <- runif(length(score))< .469*logistic((score-30)/2)
+  class <- runif(length(score))< .64*logistic((score-30)/2)
   readmitted <- ifelse(class==T,"YES","NO")
   data.frame(gender,race,age,time_in_hospital,num_lab_procedures,num_procedures,
              num_medications,number_outpatient,number_emergency,number_inpatient,number_diagnoses,
@@ -89,11 +89,52 @@ generate_dataset <- function(N) {
 
 data <- generate_dataset(N)
 
+plot(data$readmitted, main = "readmissions") # readmission: >50% no readmission
 
-fit_sim <- glm(readmitted~.,data=data, family=binomial)
+
+fit_sim <- glm(readmitted~.,data=train, family=binomial)
 summary(fit_sim)
+logisticPseudoR2s(fit_sim)
+fit_main <- glm(readmitted~age+time_in_hospital+num_lab_procedures+num_medications+
+                number_outpatient+number_emergency+number_inpatient+number_diagnoses+
+                  insulin+diag1,
+                data=train, family=binomial)
+summary(fit_main)
+logisticPseudoR2s(fit_main)
 
+set.seed(123)
+inTrain <- createDataPartition(y = data$readmitted, p = .66,list = FALSE)
+train <- data[ inTrain,]
+test <- data[-inTrain,]
+nrow(train) # 67167
+nrow(test) # 3459
+plot(train$readmitted)
 
+nnet_model <- nnet(formula = readmitted~age+time_in_hospital+num_lab_procedures+num_medications+
+                     number_outpatient+number_emergency+number_inpatient+number_diagnoses+
+                     insulin+diag1, 
+                   data=train, size = 10, maxit = 100)
+test$pred <- predict(nnet_model, test, type = "class")
+prop.table(table(test$readmitted, test$pred),1)
+confusionMatrix(test$pred, test$readmitted)
+
+# Predict labels on test
+ypred <- predict(nnet_model,test,type = "class")
+# Compute at the prediction scores
+test$ypredscore = predict(nnet_model,test,type="raw")
+# Check that the predicted labels are the signs of the scores
+table(test$ypredscore > 0,test$pred)
+# compute ROC curve, precision-recall etc...
+pred <- prediction(test$ypredscore,test$readmitted)
+# Plot ROC curve
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf)
+# Plot precision/recall curve
+perf <- performance(pred, measure = "prec", x.measure = "rec")
+plot(perf)
+# Plot accuracy as function of threshold
+perf <- performance(pred, measure = "acc")
+plot(perf)
 
 
 
